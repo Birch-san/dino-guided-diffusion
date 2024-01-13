@@ -33,16 +33,11 @@ class EPSDenoiser(DiscreteEpsDDPMDenoiser, Denoiser):
     return_dict: bool = True,
     cross_attention_mask: Optional[BoolTensor] = None,
   ) -> FloatTensor:
-    # encoder_attention_mask is a proposal from my cross_attn_3 branch of diffusers:
-    # https://github.com/huggingface/diffusers/pull/2634
-    # don't pass it in if we don't have to, to ensure compatibility with main branch of diffusers
-    attn_kwargs = {} if cross_attention_mask is None else {
-      'encoder_attention_mask': cross_attention_mask,
-    }
     out: UNet2DConditionOutput = self.inner_model(
       sample.to(self.inner_model.dtype),
       timestep.to(self.inner_model.dtype),
       encoder_hidden_states=encoder_hidden_states.to(self.inner_model.dtype),
+      encoder_attention_mask=cross_attention_mask,
       return_dict=return_dict,
       **attn_kwargs,
     )
@@ -65,16 +60,11 @@ class VDenoiser(DiscreteVDDPMDenoiser, Denoiser):
     return_dict: bool = True,
     cross_attention_mask: Optional[BoolTensor] = None,
     ) -> FloatTensor:
-    # encoder_attention_mask is a proposal from my cross_attn_3 branch of diffusers:
-    # https://github.com/huggingface/diffusers/pull/2634
-    # don't pass it in if we don't have to, to ensure compatibility with main branch of diffusers
-    attn_kwargs = {} if cross_attention_mask is None else {
-      'encoder_attention_mask': cross_attention_mask,
-    }
     out: UNet2DConditionOutput = self.inner_model(
       sample.to(self.inner_model.dtype),
       timestep.to(self.inner_model.dtype),
       encoder_hidden_states=encoder_hidden_states.to(self.inner_model.dtype),
+      encoder_attention_mask=cross_attention_mask,
       return_dict=return_dict,
       **attn_kwargs,
     )

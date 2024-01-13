@@ -1,5 +1,5 @@
 from diffusers.models.unet_2d_condition import UNet2DConditionModel
-from diffusers.models.autoencoder_kl import AutoencoderKL
+from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
 import torch
 from torch import FloatTensor, Generator, randn
 from os import makedirs, listdir
@@ -9,9 +9,6 @@ import fnmatch
 from typing import List, Callable, Dict
 from k_diffusion.sampling import BrownianTreeNoiseSampler, get_sigmas_karras, sample_dpmpp_2m_sde, sample_dpmpp_2m
 from PIL import Image
-from models.imagebind_model import imagebind_huge, ImageBindModel, ModalityType
-import data
-from data import load_and_transform_text, load_and_transform_vision_data, load_and_transform_audio_data
 
 from dino_guidance.schedule.schedule_params import get_alphas, get_alphas_cumprod, get_betas
 from dino_guidance.device import DeviceType, get_device_type
@@ -39,7 +36,6 @@ from dino_guidance.approx_vae.ckpt_picker import get_approx_decoder_ckpt, get_ap
 # relative to current working directory, i.e. repository root of embedding-compare
 img_bind_dir = 'lib/ImageBind'
 
-data.BPE_PATH = join(img_bind_dir, data.BPE_PATH)
 img_bind_assets_dir = join(img_bind_dir, '.assets')
 assets_dir = 'assets'
 

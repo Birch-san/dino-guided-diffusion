@@ -13,28 +13,28 @@ from models.imagebind_model import imagebind_huge, ImageBindModel, ModalityType
 import data
 from data import load_and_transform_text, load_and_transform_vision_data, load_and_transform_audio_data
 
-from imgbind_guidance.schedule.schedule_params import get_alphas, get_alphas_cumprod, get_betas
-from imgbind_guidance.device import DeviceType, get_device_type
-from imgbind_guidance.schedule.schedules import KarrasScheduleParams, KarrasScheduleTemplate, get_template_schedule
-from imgbind_guidance.clip_embed.embed_text_types import Embed, EmbeddingAndMask
-from imgbind_guidance.clip_embed.embed_text import ClipImplementation, get_embedder
-from imgbind_guidance.denoisers.unet_2d_wrapper import EPSDenoiser, VDenoiser
-from imgbind_guidance.latents_shape import LatentsShape
-from imgbind_guidance.denoisers.imgbind_guided_nocfg_denoiser import ImgBindGuidedNoCFGDenoiser
-from imgbind_guidance.denoisers.imgbind_guided_cfg_denoiser import ImgBindGuidedCFGDenoiser
-from imgbind_guidance.denoisers.nocfg_denoiser import NoCFGDenoiser
-from imgbind_guidance.denoisers.cfg_denoiser import CFGDenoiser
-from imgbind_guidance.latents_to_pils import LatentsToPils, LatentsToBCHW, make_latents_to_pils, make_latents_to_bchw
-from imgbind_guidance.log_intermediates import LogIntermediates, LogIntermediatesFactory, make_log_intermediates_factory
-from imgbind_guidance.approx_vae.latents_to_pils import make_approx_latents_to_pils
-from imgbind_guidance.approx_vae.decoder_ckpt import DecoderCkpt
-from imgbind_guidance.approx_vae.encoder_ckpt import EncoderCkpt
-from imgbind_guidance.approx_vae.decoder import Decoder
-from imgbind_guidance.approx_vae.encoder import Encoder
-from imgbind_guidance.approx_vae.get_approx_decoder import get_approx_decoder
-from imgbind_guidance.approx_vae.get_approx_encoder import get_approx_encoder
-from imgbind_guidance.approx_vae.latent_roundtrip import LatentsToRGB, RGBToLatents, make_approx_latents_to_rgb, make_approx_rgb_to_latents, make_real_latents_to_rgb, make_real_rgb_to_latents
-from imgbind_guidance.approx_vae.ckpt_picker import get_approx_decoder_ckpt, get_approx_encoder_ckpt
+from dino_guidance.schedule.schedule_params import get_alphas, get_alphas_cumprod, get_betas
+from dino_guidance.device import DeviceType, get_device_type
+from dino_guidance.schedule.schedules import KarrasScheduleParams, KarrasScheduleTemplate, get_template_schedule
+from dino_guidance.clip_embed.embed_text_types import Embed, EmbeddingAndMask
+from dino_guidance.clip_embed.embed_text import ClipImplementation, get_embedder
+from dino_guidance.denoisers.unet_2d_wrapper import EPSDenoiser, VDenoiser
+from dino_guidance.latents_shape import LatentsShape
+from dino_guidance.denoisers.imgbind_guided_nocfg_denoiser import ImgBindGuidedNoCFGDenoiser
+from dino_guidance.denoisers.imgbind_guided_cfg_denoiser import ImgBindGuidedCFGDenoiser
+from dino_guidance.denoisers.nocfg_denoiser import NoCFGDenoiser
+from dino_guidance.denoisers.cfg_denoiser import CFGDenoiser
+from dino_guidance.latents_to_pils import LatentsToPils, LatentsToBCHW, make_latents_to_pils, make_latents_to_bchw
+from dino_guidance.log_intermediates import LogIntermediates, LogIntermediatesFactory, make_log_intermediates_factory
+from dino_guidance.approx_vae.latents_to_pils import make_approx_latents_to_pils
+from dino_guidance.approx_vae.decoder_ckpt import DecoderCkpt
+from dino_guidance.approx_vae.encoder_ckpt import EncoderCkpt
+from dino_guidance.approx_vae.decoder import Decoder
+from dino_guidance.approx_vae.encoder import Encoder
+from dino_guidance.approx_vae.get_approx_decoder import get_approx_decoder
+from dino_guidance.approx_vae.get_approx_encoder import get_approx_encoder
+from dino_guidance.approx_vae.latent_roundtrip import LatentsToRGB, RGBToLatents, make_approx_latents_to_rgb, make_approx_rgb_to_latents, make_real_latents_to_rgb, make_real_rgb_to_latents
+from dino_guidance.approx_vae.ckpt_picker import get_approx_decoder_ckpt, get_approx_encoder_ckpt
 
 # relative to current working directory, i.e. repository root of embedding-compare
 img_bind_dir = 'lib/ImageBind'

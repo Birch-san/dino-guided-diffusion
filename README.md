@@ -1,32 +1,35 @@
-# Embedding Compare
+# Dinov2-guided diffusion
 
-Gonna try guiding stable-diffusion on spherical distance loss from ImageBind embeddings.
+Gonna try guiding stable-diffusion on spherical distance loss from Dinov2 embeddings.  
+If you see a lot of ImageBind code it's because this repository is a fork of [imagebind-guided-diffusion](https://github.com/Birch-san/imagebind-guided-diffusion).
 
 ## Setup
 
 Clone repository (including ImageBind submodule):
 
 ```bash
-git clone --recursive --depth 1 https://github.com/Birch-san/imagebind-guided-diffusion.git
+git clone https://github.com/Birch-san/dino-guided-diffusion.git
 cd imagebind-guided-diffusion
 ```
 
-Create a Conda environment. I'm naming this after Python 3.11 and CUDA 12.1:
+### [Option 1] Conda env
+
+Create a Conda environment.
 
 ```bash
-conda create -n p311-cu121 python=3.11
-conda activate p311-cu121
+conda create -n dino-guide python=3.11
+conda activate dino-guide
+```
+
+### [Option 2] Virtualenv
+
+```bash
+python3.11 -m venv venv
+. venv/bin/activate
+pip install wheel
 ```
 
 ## Install dependencies
-
-**Ensure you have activated the conda environment you created above.**
-
-(Optional) treat yourself to latest nightly of PyTorch (and a compatible torchvision), with support for Python 3.11 and CUDA 12.1:
-
-```bash
-pip install --upgrade --pre torch torchvision --extra-index-url https://download.pytorch.org/whl/nightly/cu121
-```
 
 Install the rest of the dependencies:
 
@@ -39,5 +42,5 @@ pip install -r requirements.txt
 From root of repository:
 
 ```bash
-PYTHONPATH="src:lib/ImageBind:$PYTHONPATH" python -m scripts.guidance_play
+python -m scripts.guidance_play
 ```

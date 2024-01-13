@@ -9,20 +9,7 @@
       "type": "python",
       "request": "launch",
       "module": "scripts.guidance_play",
-      "justMyCode": false,
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}/lib/ImageBind:${env.PYTHONPATH}"
-      }
-    },
-    {
-      "name": "Python: Embed play",
-      "type": "python",
-      "request": "launch",
-      "module": "scripts.embed_play",
-      "justMyCode": true,
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/src:${workspaceFolder}/lib/ImageBind:${env.PYTHONPATH}"
-      }
+      "justMyCode": false
     }
   ]
 }

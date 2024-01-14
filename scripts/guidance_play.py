@@ -2,6 +2,7 @@ from diffusers.models.unet_2d_condition import UNet2DConditionModel
 from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
 import torch
 from torch import FloatTensor, Generator, randn
+from torchvision.io import read_image
 from os import makedirs, listdir
 from os.path import join
 from pathlib import Path
@@ -17,10 +18,10 @@ from dino_guidance.clip_embed.embed_text_types import Embed, EmbeddingAndMask
 from dino_guidance.clip_embed.embed_text import ClipImplementation, get_embedder
 from dino_guidance.denoisers.unet_2d_wrapper import EPSDenoiser, VDenoiser
 from dino_guidance.latents_shape import LatentsShape
-from dino_guidance.denoisers.dino_guided_nocfg_denoiser import DinoGuidedNoCFGDenoiser
+# from dino_guidance.denoisers.dino_guided_nocfg_denoiser import DinoGuidedNoCFGDenoiser
 # from dino_guidance.denoisers.dino_guided_cfg_denoiser import ImgBindGuidedCFGDenoiser
 from dino_guidance.denoisers.nocfg_denoiser import NoCFGDenoiser
-from dino_guidance.denoisers.cfg_denoiser import CFGDenoiser
+# from dino_guidance.denoisers.cfg_denoiser import CFGDenoiser
 from dino_guidance.extraction import DINOv2RegFeatureExtractor
 from dino_guidance.latents_to_pils import LatentsToPils, LatentsToBCHW, make_latents_to_pils, make_latents_to_bchw
 from dino_guidance.log_intermediates import LogIntermediates, LogIntermediatesFactory, make_log_intermediates_factory
@@ -34,11 +35,9 @@ from dino_guidance.approx_vae.get_approx_encoder import get_approx_encoder
 from dino_guidance.approx_vae.latent_roundtrip import LatentsToRGB, RGBToLatents, make_approx_latents_to_rgb, make_approx_rgb_to_latents, make_real_latents_to_rgb, make_real_rgb_to_latents
 from dino_guidance.approx_vae.ckpt_picker import get_approx_decoder_ckpt, get_approx_encoder_ckpt
 from dino_guidance.sampling import sample_dpm_guided
+from dino_guidance.spherical_dist_loss import dist
 
 # relative to current working directory, i.e. repository root of embedding-compare
-img_bind_dir = 'lib/ImageBind'
-
-img_bind_assets_dir = join(img_bind_dir, '.assets')
 assets_dir = 'assets'
 
 device_type: DeviceType = get_device_type()
@@ -172,10 +171,13 @@ noise_sampler = BrownianTreeNoiseSampler(
   transform=lambda sigma: unet_k_wrapped.sigma_to_t(sigma)
 )
 
-dinov2_vitl14_reg = DINOv2RegFeatureExtractor('dinov2_vitl14_reg', device=device)
+dino = DINOv2RegFeatureExtractor('vitl14_reg', device=device)
 # torch.compile(imgbind, mode='reduce-overhead')
 img_path: str = join(assets_dir, 'polka-bicubresize256-crop224-translate.png')
-target_emb: FloatTensor = dinov2_vitl14_reg(img_path)
+# img: Image.Image = Image.open(img_path)
+img: FloatTensor = read_image(img_path).to(device=device, dtype=torch.float16).div_(255).unsqueeze_(0)
+
+target_emb: FloatTensor = dino(img, shift_from_plusminus1_to_0_1=False)
 guidance_scale=300.
 # cfg_scale=2.0
 # denoiser = ImgBindGuidedCFGDenoiser(
@@ -187,23 +189,42 @@ guidance_scale=300.
 #   guidance_scale=guidance_scale,
 #   cfg_scale=cfg_scale,
 # )
-denoiser = DinoGuidedNoCFGDenoiser(
-  denoiser=unet_k_wrapped,
-  dino=dinov2_vitl14_reg,
-  latents_to_rgb=guidance_decoder,
-  target_emb=target_emb,
-  cross_attention_conds=embedding,
-  guidance_scale=guidance_scale,
-)
+# denoiser = DinoGuidedNoCFGDenoiser(
+#   denoiser=unet_k_wrapped,
+#   dino=dinov2_vitl14_reg,
+#   latents_to_rgb=guidance_decoder,
+#   target_emb=target_emb,
+#   cross_attention_conds=embedding,
+#   guidance_scale=guidance_scale,
+# )
 # denoiser = CFGDenoiser(
 #   denoiser=unet_k_wrapped,
 #   cross_attention_conds=embedding,
 #   cfg_scale=7.5,
 # )
-# denoiser = NoCFGDenoiser(
-#   denoiser=unet_k_wrapped,
-#   cross_attention_conds=embedding,
-# )
+denoiser = NoCFGDenoiser(
+  denoiser=unet_k_wrapped,
+  cross_attention_conds=embedding,
+)
+size_fac = (height * width) / (512 * 512)
+
+def cond_model(x: FloatTensor, sigma: FloatTensor, **kwargs) -> FloatTensor:
+  denoised = None
+
+  def loss_fn(x: FloatTensor) -> FloatTensor:
+    nonlocal denoised
+    denoised = denoiser(x, sigma, **kwargs)
+    loss = x.new_tensor(0.0)
+    for target, scale in zip([target_emb], [guidance_scale]):
+      image_embed = dino(denoised)
+      loss_cur = dist(image_embed, target) ** 2 / 2
+      loss += loss_cur * scale * size_fac
+    return loss
+
+  grad = torch.autograd.functional.vjp(loss_fn, x)[1]
+  # we don't clamp latents; thresholding remains an area of research
+  # return denoised.clamp(-1, 1), -grad
+  return denoised, -grad
 
 out_dir = 'out'
 makedirs(out_dir, exist_ok=True)
@@ -231,15 +252,16 @@ max_cond=0.05
 # multiplier for noise variance. 0 gives ODE sampling, 1 gives stadnard diffusion SDE sampling.
 eta=1.
 denoised_latents: FloatTensor = sample_dpm_guided(
-  denoiser,
-  noised_latents,
-  sigma_min,
-  start_sigma,
-  max_h,
-  max_cond,
-  noise_sampler=noise_sampler,
-  callback=callback,
+  model=cond_model,
+  x=noised_latents,
+  sigma_min=sigma_min,
+  sigma_max=start_sigma,
+  max_h=max_h,
+  max_cond=max_cond,
   eta=eta,
+  noise_sampler=noise_sampler,
+  solver_type='dpm3',
+  callback=callback,
 ).to(vae_dtype)
 del noised_latents
 pil_images: List[Image.Image] = latents_to_pils(denoised_latents)

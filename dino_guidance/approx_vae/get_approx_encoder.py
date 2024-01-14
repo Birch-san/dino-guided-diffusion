@@ -5,7 +5,7 @@ from typing import OrderedDict
 from .encoder import Encoder
 from .encoder_ckpt import EncoderCkpt, approx_encoder_ckpt_filenames
 
-repo_root: str = join(dirname(__file__), '../../..')
+repo_root: str = join(dirname(__file__), '../..')
 ckpts_dir: str = join(repo_root, 'approx_vae')
 
 def get_approx_encoder(

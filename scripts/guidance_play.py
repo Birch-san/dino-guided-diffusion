@@ -6,21 +6,22 @@ from os import makedirs, listdir
 from os.path import join
 from pathlib import Path
 import fnmatch
-from typing import List, Callable, Dict
+from typing import List, Callable
 from k_diffusion.sampling import BrownianTreeNoiseSampler, get_sigmas_karras, sample_dpmpp_2m_sde, sample_dpmpp_2m
 from PIL import Image
 
-from dino_guidance.schedule.schedule_params import get_alphas, get_alphas_cumprod, get_betas
+from dino_guidance.schedule.schedule_params import get_alphas, get_alphas_cumprod, get_betas, quantize_to
 from dino_guidance.device import DeviceType, get_device_type
 from dino_guidance.schedule.schedules import KarrasScheduleParams, KarrasScheduleTemplate, get_template_schedule
 from dino_guidance.clip_embed.embed_text_types import Embed, EmbeddingAndMask
 from dino_guidance.clip_embed.embed_text import ClipImplementation, get_embedder
 from dino_guidance.denoisers.unet_2d_wrapper import EPSDenoiser, VDenoiser
 from dino_guidance.latents_shape import LatentsShape
-from dino_guidance.denoisers.imgbind_guided_nocfg_denoiser import ImgBindGuidedNoCFGDenoiser
-from dino_guidance.denoisers.imgbind_guided_cfg_denoiser import ImgBindGuidedCFGDenoiser
+from dino_guidance.denoisers.dino_guided_nocfg_denoiser import DinoGuidedNoCFGDenoiser
+# from dino_guidance.denoisers.dino_guided_cfg_denoiser import ImgBindGuidedCFGDenoiser
 from dino_guidance.denoisers.nocfg_denoiser import NoCFGDenoiser
 from dino_guidance.denoisers.cfg_denoiser import CFGDenoiser
+from dino_guidance.extraction import DINOv2RegFeatureExtractor
 from dino_guidance.latents_to_pils import LatentsToPils, LatentsToBCHW, make_latents_to_pils, make_latents_to_bchw
 from dino_guidance.log_intermediates import LogIntermediates, LogIntermediatesFactory, make_log_intermediates_factory
 from dino_guidance.approx_vae.latents_to_pils import make_approx_latents_to_pils
@@ -32,6 +33,7 @@ from dino_guidance.approx_vae.get_approx_decoder import get_approx_decoder
 from dino_guidance.approx_vae.get_approx_encoder import get_approx_encoder
 from dino_guidance.approx_vae.latent_roundtrip import LatentsToRGB, RGBToLatents, make_approx_latents_to_rgb, make_approx_rgb_to_latents, make_real_latents_to_rgb, make_real_rgb_to_latents
 from dino_guidance.approx_vae.ckpt_picker import get_approx_decoder_ckpt, get_approx_encoder_ckpt
+from dino_guidance.sampling import sample_dpm_guided
 
 # relative to current working directory, i.e. repository root of embedding-compare
 img_bind_dir = 'lib/ImageBind'
@@ -47,6 +49,8 @@ vae_dtype=torch.float16
 text_encoder_dtype=torch.float16
 # https://birchlabs.co.uk/machine-learning#denoise-in-fp16-sample-in-fp32
 sampling_dtype=torch.float32
+
+torch.set_float32_matmul_precision("high")
 
 # WD1.5's Unet objective was parameterized on v-prediction
 # https://twitter.com/RiversHaveWings/status/1578193039423852544
@@ -127,6 +131,13 @@ sigmas: FloatTensor = get_sigmas_karras(
   rho=rho,
   device=device,
 ).to(sampling_dtype)
+# quantize
+sigmas = torch.cat([
+  quantize_to(sigmas[:-1], unet_k_wrapped.sigmas),
+  sigmas.new_zeros(1),
+])
+# you could start at a later sigma if you had init noise (i.e. img2img). here we use the quantized sigma_max
+start_sigma=sigmas[0]
 
 # WD1.5 was trained on area=896**2 and no side longer than 1152
 sqrt_area=896
@@ -140,10 +151,10 @@ latents_shape = LatentsShape(unet.in_channels, height // latent_scale_factor, wi
 seed = 1234
 generator = Generator(device='cpu')
 
-latents = randn((1, latents_shape.channels, latents_shape.height, latents_shape.width), dtype=sampling_dtype, device='cpu', generator=generator).to(device)
-latents *= sigmas[0]
+noised_latents = randn((1, latents_shape.channels, latents_shape.height, latents_shape.width), dtype=sampling_dtype, device='cpu', generator=generator).to(device)
+noised_latents *= start_sigma
 
-cond = '1girl, masterpiece, extremely detailed, light smile, outdoors, best quality, best aesthetic, floating hair, full body, ribbon, looking at viewer, hair between eyes, watercolor (medium), traditional media'
+cond = '1girl, masterpiece, extremely detailed, light smile, best quality, best aesthetic, floating hair, full body, ribbon, looking at viewer, hair between eyes, watercolor (medium), traditional media'
 neg_cond = 'lowres, bad anatomy, bad hands, missing fingers, extra fingers, blurry, mutation, deformed face, ugly, bad proportions, monster, cropped, worst quality, jpeg, bad posture, long body, long neck, jpeg artifacts, deleted, bad aesthetic, realistic, real life, instagram'
 # conds = [neg_cond, cond]
 # cond = ''
@@ -152,33 +163,19 @@ embed_and_mask: EmbeddingAndMask = embed(conds)
 embedding, _ = embed_and_mask
 
 noise_sampler = BrownianTreeNoiseSampler(
-  latents,
-  # rather than using the sigma_{min,max} vars we already have:
-  # refer to sigmas array, which can be truncated (e.g. if we were doing img2img)
-  # we grab *penultimate* sigma_min, because final sigma is always 0
-  sigma_min=sigmas[-2],
-  sigma_max=sigmas[0],
+  noised_latents,
+  sigma_min=sigma_min,
+  sigma_max=start_sigma,
   # there's no requirement that the noise sampler's seed be coupled to the init noise seed;
   # I'm just re-using it because it's a convenient arbitrary number
   seed=seed,
+  transform=lambda sigma: unet_k_wrapped.sigma_to_t(sigma)
 )
 
-imgbind: ImageBindModel = imagebind_huge(pretrained=True).to(device).eval().requires_grad_(False)
-torch.compile(imgbind, mode='reduce-overhead')
-# text_binds=[]
-text_binds=['watercolour illustration of a girl sitting by a campfire at night']
-# image_bind_paths=[join(assets_dir, asset) for asset in ['vaporwave.jpg']]
-audio_bind_paths=[join(assets_dir, asset) for asset in []]
-# audio_bind_paths=[join(assets_dir, asset) for asset in ['fire.wav']]
-imgbind_inputs: Dict[ModalityType, FloatTensor] = {
-  ModalityType.TEXT: load_and_transform_text(text_binds, device),
-  # ModalityType.VISION: load_and_transform_vision_data(image_bind_paths, device),
-  # ModalityType.AUDIO: load_and_transform_audio_data(audio_bind_paths, device),
-}
-imgbind_out: Dict[ModalityType, FloatTensor] = imgbind.forward(imgbind_inputs)
-target_imgbind_cond: FloatTensor = imgbind_out[ModalityType.TEXT][0]
-# target_imgbind_cond: FloatTensor = imgbind_out[ModalityType.VISION][0]
-# target_imgbind_cond: FloatTensor = imgbind_out[ModalityType.AUDIO][0]
+dinov2_vitl14_reg = DINOv2RegFeatureExtractor('dinov2_vitl14_reg', device=device)
+# torch.compile(imgbind, mode='reduce-overhead')
+img_path: str = join(assets_dir, 'polka-bicubresize256-crop224-translate.png')
+target_emb: FloatTensor = dinov2_vitl14_reg(img_path)
 guidance_scale=300.
 # cfg_scale=2.0
 # denoiser = ImgBindGuidedCFGDenoiser(
@@ -190,11 +187,11 @@ guidance_scale=300.
 #   guidance_scale=guidance_scale,
 #   cfg_scale=cfg_scale,
 # )
-denoiser = ImgBindGuidedNoCFGDenoiser(
+denoiser = DinoGuidedNoCFGDenoiser(
   denoiser=unet_k_wrapped,
-  imgbind=imgbind,
+  dino=dinov2_vitl14_reg,
   latents_to_rgb=guidance_decoder,
-  target_imgbind_cond=target_imgbind_cond,
+  target_emb=target_emb,
   cross_attention_conds=embedding,
   guidance_scale=guidance_scale,
 )
@@ -227,14 +224,24 @@ if log_intermediates_enabled:
 else:
   callback = None
 
-denoised_latents: FloatTensor = sample_dpmpp_2m(
+# the maximum step size
+max_h=0.1
+# the maximum amount that guidance is allowed to perturb a step
+max_cond=0.05
+# multiplier for noise variance. 0 gives ODE sampling, 1 gives stadnard diffusion SDE sampling.
+eta=1.
+denoised_latents: FloatTensor = sample_dpm_guided(
   denoiser,
-  latents,
-  sigmas,
-  # noise_sampler=noise_sampler, # you can only pass noise sampler to ancestral samplers
+  noised_latents,
+  sigma_min,
+  start_sigma,
+  max_h,
+  max_cond,
+  noise_sampler=noise_sampler,
   callback=callback,
+  eta=eta,
 ).to(vae_dtype)
-del latents
+del noised_latents
 pil_images: List[Image.Image] = latents_to_pils(denoised_latents)
 del denoised_latents
 

@@ -4,7 +4,7 @@ from typing import Optional, Protocol
 from .decoder import Decoder
 from .encoder import Encoder
 from functools import partial
-from diffusers.models.autoencoder_kl import AutoencoderKLOutput
+from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKLOutput
 from diffusers.models import AutoencoderKL
 import torch
 

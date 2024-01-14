@@ -39,7 +39,6 @@ class EPSDenoiser(DiscreteEpsDDPMDenoiser, Denoiser):
       encoder_hidden_states=encoder_hidden_states.to(self.inner_model.dtype),
       encoder_attention_mask=cross_attention_mask,
       return_dict=return_dict,
-      **attn_kwargs,
     )
     return out.sample.to(self.sampling_dtype)
 
@@ -66,7 +65,6 @@ class VDenoiser(DiscreteVDDPMDenoiser, Denoiser):
       encoder_hidden_states=encoder_hidden_states.to(self.inner_model.dtype),
       encoder_attention_mask=cross_attention_mask,
       return_dict=return_dict,
-      **attn_kwargs,
     )
     return out.sample.to(self.sampling_dtype)
 

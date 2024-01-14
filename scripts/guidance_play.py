@@ -35,7 +35,7 @@ from dino_guidance.approx_vae.get_approx_encoder import get_approx_encoder
 from dino_guidance.approx_vae.latent_roundtrip import LatentsToRGB, RGBToLatents, make_approx_latents_to_rgb, make_approx_rgb_to_latents, make_real_latents_to_rgb, make_real_rgb_to_latents
 from dino_guidance.approx_vae.ckpt_picker import get_approx_decoder_ckpt, get_approx_encoder_ckpt
 from dino_guidance.sampling import sample_dpm_guided
-from dino_guidance.spherical_dist_loss import dist
+from dino_guidance.spherical_dist_loss import dist, spherical_dist_loss
 
 # relative to current working directory, i.e. repository root of embedding-compare
 assets_dir = 'assets'
@@ -168,7 +168,7 @@ noise_sampler = BrownianTreeNoiseSampler(
   # there's no requirement that the noise sampler's seed be coupled to the init noise seed;
   # I'm just re-using it because it's a convenient arbitrary number
   seed=seed,
-  transform=lambda sigma: unet_k_wrapped.sigma_to_t(sigma)
+  # transform=lambda sigma: unet_k_wrapped.sigma_to_t(sigma)
 )
 
 dino = DINOv2RegFeatureExtractor('vitl14_reg', device=device)
@@ -177,7 +177,7 @@ img_path: str = join(assets_dir, 'polka-bicubresize256-crop224-translate.png')
 # img: Image.Image = Image.open(img_path)
 img: FloatTensor = read_image(img_path).to(device=device, dtype=torch.float16).div_(255).unsqueeze_(0)
 
-target_emb: FloatTensor = dino(img, shift_from_plusminus1_to_0_1=False)
+target_emb: FloatTensor = dino(img, shift_from_plusminus1_to_0_1=False).squeeze_(0)
 guidance_scale=300.
 # cfg_scale=2.0
 # denoiser = ImgBindGuidedCFGDenoiser(
@@ -209,21 +209,28 @@ denoiser = NoCFGDenoiser(
 size_fac = (height * width) / (512 * 512)
 
 def cond_model(x: FloatTensor, sigma: FloatTensor, **kwargs) -> FloatTensor:
+  assert not x.isnan().any().item()
   denoised = None
 
   def loss_fn(x: FloatTensor) -> FloatTensor:
     nonlocal denoised
     denoised = denoiser(x, sigma, **kwargs)
+    assert not denoised.isnan().any().item()
+    denoised_rgb: FloatTensor = guidance_decoder(denoised)
+    assert not denoised_rgb.isnan().any().item()
     loss = x.new_tensor(0.0)
     for target, scale in zip([target_emb], [guidance_scale]):
-      image_embed = dino(denoised)
-      loss_cur = dist(image_embed, target) ** 2 / 2
+      image_embed = dino(denoised_rgb).squeeze_(0)
+      # loss_cur = dist(image_embed, target) ** 2 / 2
+      loss_cur = spherical_dist_loss(image_embed, target)
+      assert not loss_cur.isnan().any().item()
       loss += loss_cur * scale * size_fac
     return loss
 
   grad = torch.autograd.functional.vjp(loss_fn, x)[1]
   # we don't clamp latents; thresholding remains an area of research
   # return denoised.clamp(-1, 1), -grad
+  assert not grad.isnan().any().item()
   return denoised, -grad
 
 out_dir = 'out'
